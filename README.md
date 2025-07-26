@@ -13,6 +13,20 @@ Uma ferramenta em Python para detectar e visualizar conexões de rede ativas em 
 
 ---
 
+# Por Que Um Bom Diagrama de Rede é Essencial?
+
+Um diagrama de rede claro e atualizado é muito mais do que uma simples representação visual; ele é uma ferramenta estratégica crucial para a gestão e segurança de qualquer infraestrutura de TI. Ele pode ser essencial para:
+
+* **Conhecimento Aprofundado da Rede:** Oferece uma visão instantânea e compreensível de como os componentes da sua rede estão interconectados, facilitando o entendimento de fluxos de dados e dependências.
+* **Preparação e Conformidade em Auditorias:** É um ativo vital para demonstrar conformidade com normas e regulamentações (como PCI DSS, ISO 27001). Auditores frequentemente solicitam diagramas de rede para validar controles de segurança e entender a arquitetura.
+* **Confirmação de Ausência de Mudanças Não Autorizadas:** Ao gerar diagramas periodicamente, você pode comparar versões e rapidamente identificar se houve a abertura de portas, novas conexões ou processos inesperados, agindo como uma evidência de controle de mudanças eficaz.
+* **Evidência de Alterações na Rede:** Em caso de incidentes ou após implementações, um diagrama pode evidenciar exatamente onde e como as modificações ocorreram, facilitando a análise forense, a resolução de problemas e a comunicação entre equipes.
+* **Suporte e Resolução de Problemas:** Ajuda equipes de suporte a diagnosticar problemas rapidamente, visualizando os caminhos de comunicação e identificando gargalos ou falhas de conexão.
+
+Esta ferramenta visa automatizar a criação desses diagramas, transformando dados brutos de conexão em informações visuais acionáveis, fortalecendo sua postura de segurança e governança.
+
+---
+
 ## Pré-requisitos
 
 Para rodar este script, você precisará ter o Python e algumas bibliotecas e ferramentas adicionais instaladas.
