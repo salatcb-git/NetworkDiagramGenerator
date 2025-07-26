@@ -1,90 +1,110 @@
-# Network Diagram Generator 🌐
+# Network Diagram Generator
+
+Uma ferramenta em Python para detectar e visualizar conexões de rede ativas em hosts (Windows e Linux), correlacionando PIDs a nomes de processos e inferindo serviços/protocolos para gerar diagramas explicativos.
 
 ---
 
-## Visão Geral
+## Funcionalidades
 
-O **Network Diagram Generator** é uma ferramenta em desenvolvimento que visa simplificar a **descoberta e visualização de conexões de rede ativas** em hosts, facilitando a compreensão da topologia de comunicação e dos fluxos de dados dentro de uma infraestrutura.
-
-Nosso objetivo é ir além de um simples diagrama, **explicando as conexões** encontradas ao associá-las a processos e serviços. Dessa forma enxergamos o **Network Diagram Generator** como uma ferramenta de apoio para entidades que precisam manter documentado a topologia de rede do ambiente de avaliação, em conformidade com o PCI-DSS. Ao final desse projeto um Diagrama de rede será gerado baseado nos dados coletados, e dessa forma será possível validar se as conexões existentes no ambiente são somente aquelas que precisam realmente existir.
-
-
----
-
-## Motivação do Projeto
-
-Em ambientes de TI complexos, entender as comunicações entre servidores, aplicações e endpoints é um desafio constante. Auditorias de segurança, troubleshooting de rede e documentação da infraestrutura se beneficiam enormemente de uma visão clara de "quem está falando com quem e por quê".
-
-Este projeto nasce da necessidade de automatizar a geração de diagramas de rede dinâmicos e informativos, que sirvam como um recurso valioso para auditores, analistas de segurança e engenheiros de infraestrutura.
+* **Coleta de Dados Multiplataforma:** Coleta informações de conexão de rede usando `netstat -ano` (Windows) ou `ss -tunap` (Linux).
+* **Mapeamento de Processos:** Associa PIDs a nomes e caminhos de executáveis utilizando a biblioteca `psutil`.
+* **Inferência de Serviços/Protocolos:** Identifica serviços/protocolos comuns (HTTP, SSH, MySQL, etc.) com base nas portas utilizadas nas conexões.
+* **Geração de Diagramas Visuais:** Cria diagramas de rede em formatos como PNG ou SVG, visualizando as conexões entre IPs, processos e destacando os serviços/protocolos ativos com a ferramenta Graphviz.
 
 ---
 
-## Funcionalidades Atuais (MVP)
+## Pré-requisitos
 
-Atualmente, o projeto foca na coleta e análise inicial de dados de hosts Windows:
+Para rodar este script, você precisará ter o Python e algumas bibliotecas e ferramentas adicionais instaladas.
 
-* **Coleta de Dados de Conexão:** Executa o comando `netstat -ano` para obter informações detalhadas sobre as conexões TCP/UDP ativas e as portas em escuta.
-* **Parsing da Saída do Netstat:** Processa a saída bruta do `netstat` para extrair dados estruturados como Protocolo, Endereço Local, Endereço Remoto, Estado da Conexão e PID (Process ID) associado.
+1.  **Python 3.x:** (Versão 3.8 ou superior recomendada)
+    * Verifique com `python --version` ou `python3 --version`.
 
----
+2.  **Biblioteca Python `psutil`:**
+    * Para mapear PIDs a processos.
+    * Instalação: `pip install psutil`
 
-## Próximos Passos (Roadmap)
+3.  **Biblioteca Python `graphviz`:**
+    * Interface Python para o software Graphviz.
+    * Instalação: `pip install graphviz`
 
-Estamos trabalhando para expandir as capacidades da ferramenta, incluindo:
-
-* **Inferência de Serviços/Aplicações:** Mapear portas e PIDs a serviços/aplicações conhecidas (ex: 80/HTTP, 443/HTTPS, 3389/RDP).
-* **Geração de Diagramas Visuais:** Utilizar bibliotecas como Graphviz para criar diagramas de rede a partir dos dados coletados.
-* **Suporte a Múltiplos Hosts:** Capacidade de coletar dados de diversos hosts na rede e consolidá-los em um único diagrama.
-* **Compatibilidade com Linux:** Estender a coleta de dados para sistemas operacionais baseados em Linux.
-* **Integração com Informações de Processos:** Obter nomes dos processos associados aos PIDs para maior clareza.
-* **Interface Interativa:** Desenvolver uma interface (CLI aprimorada ou web) para facilitar o uso e a visualização.
+4.  **Software Graphviz:** (O motor de renderização de diagramas)
+    * **Crucial:** O executável `dot` do Graphviz deve estar no `PATH` do seu sistema operacional.
 
 ---
 
-## Como Usar (Atualmente)
+## Como Instalar o Software Graphviz
 
-Para rodar a versão atual do script:
+### No Windows:
 
-1.  **Pré-requisitos:**
-    * Python 3.x instalado.
-    * Sistema Operacional Windows (este script utiliza `netstat -ano`).
-
-2.  **Clone o Repositório:**
+1.  Acesse o site oficial do Graphviz: [https://graphviz.org/download/](https://graphviz.org/download/)
+2.  Baixe o instalador `.msi` mais recente para Windows (ex: `graphviz-X.XX.msi`).
+3.  Execute o instalador. Durante o processo de instalação, **selecione a opção para adicionar o Graphviz ao `PATH` do sistema para todos os usuários**.
+4.  Após a instalação, **reinicie seu terminal (Prompt de Comando ou PowerShell)**.
+5.  **Verifique a instalação** executando no terminal:
     ```bash
-    git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
+    dot -V
+    ```
+    Se retornar a versão do Graphviz, a instalação está correta.
+
+### No Linux (Ex: Ubuntu/Debian):
+
+1.  Abra o terminal.
+2.  Atualize os pacotes e instale o Graphviz:
+    ```bash
+    sudo apt update
+    sudo apt install graphviz
+    ```
+3.  **Verifique a instalação** executando no terminal:
+    ```bash
+    dot -V
+    ```
+    Se retornar a versão do Graphviz, a instalação está correta.
+
+---
+
+## Como Usar
+
+1.  **Clone o Repositório:**
+    Abra seu terminal e clone este repositório:
+    ```bash
+    git clone [https://github.com/SeuUsuario/NetworkDiagramGenerator.git](https://github.com/SeuUsuario/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
+    *(**Importante:** Substitua `SeuUsuario` pelo seu nome de usuário real no GitHub ao fornecer essas instruções.)*
+
+2.  **Instale as Dependências Python:**
+    Dentro da pasta `NetworkDiagramGenerator`, execute:
+    ```bash
+    pip install psutil graphviz
+    ```
+    *(Use `pip3` se `pip` não funcionar para Python 3.)*
 
 3.  **Execute o Script:**
+    No terminal, dentro da pasta do projeto, execute:
     ```bash
     python network_diagram_generator.py
     ```
+    *(Ou `python3 network_diagram_generator.py` se `python` não funcionar.)*
 
-    A saída mostrará as conexões de rede coletadas e analisadas no seu console.
+4.  **Obtenha o Diagrama:**
+    * O script imprimirá no console as conexões encontradas.
+    * Após a execução, um arquivo de imagem (`network_diagram.png` por padrão) será gerado na **mesma pasta do script**. Este arquivo contém o diagrama visual das conexões de rede.
 
 ---
 
+## Exemplo de Diagrama
+
+(Aqui você pode adicionar uma imagem de exemplo do diagrama gerado após ter testado e gerado um em sua máquina, ou deixar em branco por enquanto)
+
 ---
 
-## Contribuição
+## Contribuições
 
-Contribuições são bem-vindas! Se você tiver ideias, sugestões de melhoria ou quiser contribuir com código, por favor:
-
-1.  Faça um fork do repositório.
-2.  Crie uma nova branch para suas alterações (`git checkout -b feature/sua-feature`).
-3.  Faça suas alterações e commit (`git commit -m 'feat: adiciona nova funcionalidade'`).
-4.  Envie suas alterações (`git push origin feature/sua-feature`).
-5.  Abra um Pull Request descrevendo suas mudanças.
+Contribuições são bem-vindas! Se você tiver ideias para melhorias ou encontrar algum bug, sinta-se à vontade para abrir uma *issue* ou enviar um *pull request*.
 
 ---
 
 ## Licença
 
-Este projeto está licenciado sob a [MIT License](https://opensource.org/licenses/MIT).
-
----
-
-## Contato
-
-* **Git:** [Salas](https://github.com/salatcb-git)
-* **LinkedIn:** [Salatiel](https://www.linkedin.com/in/salatiel-barbosa-b5331067/)
+Este projeto está licenciado sob a [MIT License](LICENSE).
