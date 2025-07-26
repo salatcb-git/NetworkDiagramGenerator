@@ -50,7 +50,7 @@ Para rodar a versão atual do script:
 
 2.  **Clone o Repositório:**
     ```bash
-    git clone [https://github.com/SeuUsuario/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
+    git clone [https://github.com/SeuUsuario/NetworkDiagramGenerator.git](https://github.com/SeuUsuario/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
     *(Substitua `SeuUsuario` pelo seu nome de usuário do GitHub)*
