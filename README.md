@@ -86,5 +86,5 @@ Este projeto está licenciado sob a [MIT License](https://opensource.org/license
 
 ## Contato
 
-* **Salas Username:** [Meu Link do Git](https://github.com/salatcb-git)
-* **LinkedIn:** (https://www.linkedin.com/in/salatiel-barbosa-b5331067/)
+* **Salas:** [Meu Link do Git](https://github.com/salatcb-git)]
+* **LinkedIn:** [(https://www.linkedin.com/in/salatiel-barbosa-b5331067/)]
