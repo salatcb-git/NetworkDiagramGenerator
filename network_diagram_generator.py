@@ -2,7 +2,8 @@ import subprocess
 import os
 import psutil
 import re
-import graphviz # Importa a biblioteca graphviz
+import graphviz
+import datetime # Importa o módulo datetime
 
 # Dicionário para mapear portas conhecidas a nomes de serviços
 KNOWN_PORTS = {
@@ -46,6 +47,7 @@ def collect_connection_data():
         return None
 
     try:
+        # Adiciona timeout para evitar que o comando trave indefinidamente
         process = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
         return process.stdout
     except subprocess.CalledProcessError as e:
@@ -64,17 +66,19 @@ def get_process_info(pid):
     Obtém o nome do processo e o caminho do executável a partir de um PID.
     Retorna um dicionário com 'name' e 'path' do processo.
     """
-    if not pid or pid == '0' or pid == '-':
+    if not pid or pid == '0' or pid == '-': # PID 0, vazio ou '-' para System/Kernel/Unknown
         return {'name': 'System/Kernel/Unknown', 'path': ''}
     try:
         p = psutil.Process(int(pid))
         return {
             'name': p.name(),
-            'path': p.exe()
+            'path': p.exe() # Retorna o caminho completo do executável
         }
     except (psutil.NoSuchProcess, psutil.AccessDenied):
+        # NoSuchProcess: Processo não existe mais
+        # AccessDenied: Permissão negada para acessar informações do processo (comum para processos de sistema sem privilégios)
         return {'name': 'Processo não encontrado/acessível', 'path': ''}
-    except ValueError:
+    except ValueError: # Caso o PID não seja um número
         return {'name': 'PID inválido', 'path': ''}
     except Exception as e:
         return {'name': f'Erro psutil: {e}', 'path': ''}
@@ -84,7 +88,7 @@ def get_service_name_from_port(port, protocol):
     Retorna o nome de um serviço conhecido para uma dada porta.
     Também verifica se a porta está na faixa de portas efêmeras.
     """
-    port_str = str(port).split(':')[-1]
+    port_str = str(port).split(':')[-1] # Pega a última parte se for IPv6 ou algo assim
     try:
         port_num = int(port_str)
         # Verifica portas efêmeras (comum em conexões de saída de clientes)
@@ -123,7 +127,7 @@ def parse_connection_output(raw_output):
         foreign_address = ''
         state = ''
         pid_str = ''
-        process_name_from_ss = ''
+        process_name_from_ss = '' # Para capturar o nome do processo bruto do ss
 
         if is_windows_output:
             if len(parts) >= 5:
@@ -133,20 +137,25 @@ def parse_connection_output(raw_output):
                 state = parts[3]
                 pid_str = parts[4]
         elif is_linux_output:
+            # Padrão para ss: Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port users:(("process_name",pid=PID,fd=FD))
             if len(parts) >= 6:
                 protocol = parts[0]
                 state = parts[1]
                 local_address = parts[4]
                 foreign_address = parts[5]
 
+                # Tenta extrair PID e nome do processo da parte 'users:(("...",pid=...",...))'
+                # Usando regex para maior robustez
                 match_users_info = re.search(r'users:\(\("([^"]+)",pid=(\d+),fd=\d+\)\)', line)
                 if match_users_info:
                     process_name_from_ss = match_users_info.group(1)
                     pid_str = match_users_info.group(2)
-                else:
+                else: # Fallback para casos sem info de users (ex: kernel, ou outras infos no final)
+                    # No Linux, se não há 'users' info, o PID pode estar no final ou ser ausente.
+                    # Vamos tentar pegar o último 'part' como PID se for numérico.
                     if parts[-1].isdigit():
                         pid_str = parts[-1]
-                    elif parts[-2].isdigit():
+                    elif len(parts) >= 2 and parts[-2].isdigit(): # As vezes o PID esta na penultima posicao para alguns servicos
                          pid_str = parts[-2]
         
         # Extrai a porta do endereço local e estrangeiro
@@ -156,12 +165,12 @@ def parse_connection_output(raw_output):
 
         service_name_foreign = get_service_name_from_port(foreign_port, protocol)
         service_name_local = get_service_name_from_port(local_port, protocol) # Também para a porta local
-
+        
         process_info = get_process_info(pid_str)
         
         final_process_name = process_info['name']
-        if is_linux_output and process_name_from_ss and 'Processo não encontrado' in final_process_name:
-            final_process_name = process_name_from_ss
+        if is_linux_output and process_name_from_ss and ('Processo não encontrado' in final_process_name or 'Erro psutil' in final_process_name):
+            final_process_name = process_name_from_ss # Usa o nome do ss se psutil falhar ou for generico
 
         connections.append({
             'protocol': protocol,
@@ -183,60 +192,74 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
     Gera um diagrama de rede a partir das conexões usando Graphviz.
     O diagrama será salvo como um arquivo de imagem (ex: .png).
     """
-    dot = graphviz.Digraph(comment='Network Connections', graph_attr={'rankdir': 'LR'}) # LR = Left to Right
+    # Obtém a data atual
+    current_date = datetime.date.today().strftime("%Y-%m-%d")
+    diagram_title = f"Diagrama de Conexões de Rede\nData de Criação/Revisão: {current_date}"
+
+    dot = graphviz.Digraph(comment='Network Connections', 
+                           graph_attr={'rankdir': 'LR', 'label': diagram_title, 'labelloc': 't', 'fontsize': '20'},
+                           node_attr={'fontname': 'Helvetica'},
+                           edge_attr={'fontname': 'Helvetica'})
 
     # Conjuntos para armazenar nós únicos (IPs e processos) para evitar duplicação
     nodes = set()
     
-    # Dicionário para armazenar informações detalhadas de nós (IPs e processos)
-    # { 'IP_ou_Processo': {'label': '...', 'shape': '...', 'color': '...'} }
-    node_details = {}
-
     # Adicionar nós (IPs e Processos)
     for conn in connections:
-        local_ip = conn['local_address'].split(':')[0] if ':' in conn['local_address'] else conn['local_address']
-        foreign_ip = conn['foreign_address'].split(':')[0] if ':' in conn['foreign_address'] else conn['foreign_address']
+        local_ip_full = conn['local_address']
+        foreign_ip_full = conn['foreign_address']
+        
+        # Remove a porta do IP para o ID do nó
+        local_ip_node = local_ip_full.split(':')[0] if ':' in local_ip_full else local_ip_full
+        foreign_ip_node = foreign_ip_full.split(':')[0] if ':' in foreign_ip_full else foreign_ip_full
 
         # Nós de IP Local
-        if local_ip not in nodes:
-            dot.node(local_ip, local_ip, shape='box', style='filled', color='lightblue', fontname='Helvetica')
-            nodes.add(local_ip)
-            node_details[local_ip] = {'label': local_ip, 'shape': 'box', 'color': 'lightblue'}
+        if local_ip_node not in nodes:
+            dot.node(local_ip_node, local_ip_node, shape='box', style='filled', color='lightblue')
+            nodes.add(local_ip_node)
 
         # Nós de IP Estrangeiro
-        if foreign_ip and foreign_ip != '0.0.0.0' and foreign_ip != '*' and foreign_ip not in nodes:
-            dot.node(foreign_ip, foreign_ip, shape='box', style='filled', color='lightgreen', fontname='Helvetica')
-            nodes.add(foreign_ip)
-            node_details[foreign_ip] = {'label': foreign_ip, 'shape': 'box', 'color': 'lightgreen'}
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node not in nodes:
+            dot.node(foreign_ip_node, foreign_ip_node, shape='box', style='filled', color='lightgreen')
+            nodes.add(foreign_ip_node)
         
         # Nó do Processo Local
-        process_node_id = f"PID_{conn['pid']}_{conn['process_name']}"
+        # Cria um ID único para o processo incluindo o PID e o nome
+        process_node_id = f"PID_{conn['pid']}_{conn['process_name'].replace(' ', '_').replace('.', '_')}" # Sanitiza para ID
         process_label = f"{conn['process_name']}\n(PID: {conn['pid']})"
         if process_node_id not in nodes:
-            dot.node(process_node_id, process_label, shape='ellipse', style='filled', color='lightyellow', fontname='Helvetica')
+            dot.node(process_node_id, process_label, shape='ellipse', style='filled', color='lightyellow')
             nodes.add(process_node_id)
-            node_details[process_node_id] = {'label': process_label, 'shape': 'ellipse', 'color': 'lightyellow'}
 
     # Adicionar arestas (conexões)
     for conn in connections:
-        local_ip = conn['local_address'].split(':')[0] if ':' in conn['local_address'] else conn['local_address']
-        foreign_ip = conn['foreign_address'].split(':')[0] if ':' in conn['foreign_address'] else conn['foreign_address']
+        local_ip_full = conn['local_address']
+        foreign_ip_full = conn['foreign_address']
         
-        process_node_id = f"PID_{conn['pid']}_{conn['process_name']}"
+        local_ip_node = local_ip_full.split(':')[0] if ':' in local_ip_full else local_ip_full
+        foreign_ip_node = foreign_ip_full.split(':')[0] if ':' in foreign_ip_full else foreign_ip_full
+
+        process_node_id = f"PID_{conn['pid']}_{conn['process_name'].replace(' ', '_').replace('.', '_')}"
 
         # Aresta: Processo -> IP Local (representando o uso da porta local)
-        label_local_port = f"Porta Local: {conn['local_port']}\n({conn['service_local']})"
-        dot.edge(process_node_id, local_ip, label=label_local_port, style='dashed', color='gray')
+        # Se a porta local é efêmera, é uma conexão de saída
+        # Se a porta local é conhecida e está LISTENING, é um serviço
+        
+        # Label para a aresta do processo para o IP local
+        label_process_to_local_ip = f"Usa Porta: {conn['local_port']}\n({conn['service_local']})"
+        dot.edge(process_node_id, local_ip_node, label=label_process_to_local_ip, style='dashed', color='gray')
+
 
         # Aresta: IP Local -> IP Estrangeiro (conexão de rede principal)
-        # O label da aresta deve indicar o protocolo/serviço da conexão
-        if foreign_ip and foreign_ip != '0.0.0.0' and foreign_ip != '*':
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*':
             label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
-            dot.edge(local_ip, foreign_ip, label=label_connection, color='blue', penwidth='1.5')
-        elif conn['state'] == 'LISTENING':
+            dot.edge(local_ip_node, foreign_ip_node, label=label_connection, color='blue', penwidth='1.5')
+        elif conn['state'] == 'LISTENING' and conn['local_port']:
             # Para LISTENERS, a "conexão" é com o próprio IP local, representando que a porta está aberta para o mundo
+            # E a aresta principal deve vir do IP local
             label_listening = f"LISTEN {conn['local_port']}\n({conn['service_local']})"
-            dot.edge(local_ip, local_ip, label=label_listening, dir='none', color='orange', style='dotted', fontcolor='red')
+            # Usar uma aresta para si mesmo para indicar que a porta está aberta para conexões
+            dot.edge(local_ip_node, local_ip_node, label=label_listening, dir='none', color='orange', style='dotted', fontcolor='red')
 
 
     try:
