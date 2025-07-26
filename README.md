@@ -68,11 +68,9 @@ Para rodar este script, você precisará ter o Python e algumas bibliotecas e fe
 1.  **Clone o Repositório:**
     Abra seu terminal e clone este repositório:
     ```bash
-    git clone [https://github.com/SeuUsuario/NetworkDiagramGenerator.git](https://github.com/SeuUsuario/NetworkDiagramGenerator.git)
+    git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
-    *(**Importante:** Substitua `SeuUsuario` pelo seu nome de usuário real no GitHub ao fornecer essas instruções.)*
-
 2.  **Instale as Dependências Python:**
     Dentro da pasta `NetworkDiagramGenerator`, execute:
     ```bash
@@ -90,12 +88,6 @@ Para rodar este script, você precisará ter o Python e algumas bibliotecas e fe
 4.  **Obtenha o Diagrama:**
     * O script imprimirá no console as conexões encontradas.
     * Após a execução, um arquivo de imagem (`network_diagram.png` por padrão) será gerado na **mesma pasta do script**. Este arquivo contém o diagrama visual das conexões de rede.
-
----
-
-## Exemplo de Diagrama
-
-(Aqui você pode adicionar uma imagem de exemplo do diagrama gerado após ter testado e gerado um em sua máquina, ou deixar em branco por enquanto)
 
 ---
 
