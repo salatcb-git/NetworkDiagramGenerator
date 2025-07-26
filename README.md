@@ -6,7 +6,7 @@
 
 O **Network Diagram Generator** é uma ferramenta em desenvolvimento que visa simplificar a **descoberta e visualização de conexões de rede ativas** em hosts, facilitando a compreensão da topologia de comunicação e dos fluxos de dados dentro de uma infraestrutura.
 
-Nosso objetivo é ir além de um simples diagrama, **explicando as conexões** encontradas ao associá-las a processos e serviços. Dessa forma enxergamos o **Network Diagram Generator** como uma ferramenta de apoio para entidades que tem por objetivo manter documentado a topologia de rede do ambiente que tem por objetivo manter a conformidade com o PCI-DSS.
+Nosso objetivo é ir além de um simples diagrama, **explicando as conexões** encontradas ao associá-las a processos e serviços. Dessa forma enxergamos o **Network Diagram Generator** como uma ferramenta de apoio para entidades que precisam manter documentado a topologia de rede do ambiente de avaliação, em conformidade com o PCI-DSS.
 
 ---
 
