@@ -50,7 +50,7 @@ Para rodar a versão atual do script:
 
 2.  **Clone o Repositório:**
     ```bash
-    git clone [https://github.com/SeuUsuario/NetworkDiagramGenerator.git](https://github.com/SeuUsuario/NetworkDiagramGenerator.git)
+    git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
     *(Substitua `SeuUsuario` pelo seu nome de usuário do GitHub)*
@@ -61,6 +61,8 @@ Para rodar a versão atual do script:
     ```
 
     A saída mostrará as conexões de rede coletadas e analisadas no seu console.
+
+---
 
 ---
 
