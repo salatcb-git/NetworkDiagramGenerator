@@ -53,7 +53,7 @@ Para rodar a versão atual do script:
     git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
-    #**(Substitua `SeuUsuario` pelo seu nome de usuário do GitHub)**
+    # *(Substitua `SeuUsuario` pelo seu nome de usuário do GitHub)*
 
 3.  **Execute o Script:**
     ```bash
