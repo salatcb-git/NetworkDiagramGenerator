@@ -113,7 +113,7 @@ Para rodar este script, você precisará ter o Python e algumas bibliotecas e fe
 1.  **Clone o Repositório:**
     Abra seu terminal e clone este repositório:
     ```bash
-    git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
+    git clone https://github.com/salatcb-git/NetworkDiagramGenerator.git
     cd NetworkDiagramGenerator
     ```
 2.  **Instale as Dependências Python:**
