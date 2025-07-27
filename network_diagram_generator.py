@@ -4,6 +4,7 @@ import psutil
 import re
 import graphviz
 import datetime
+import socket # <--- NOVA IMPORTAÇÃO AQUI
 
 # Dicionário para mapear portas conhecidas a nomes de serviços
 # Este dicionário continua importante para nomear as portas que você *decidir* incluir.
@@ -11,7 +12,7 @@ import datetime
 KNOWN_PORTS = {
     '7': 'Echo', '9': 'Discard', '13': 'Daytime', '17': 'Quote of the Day', '19': 'Chargen',
     '20': 'FTP Data', '21': 'FTP Control', '22': 'SSH (Secure Shell)', '23': 'Telnet',
-    '25': 'SMTP (Simple Mail Transfer Protocol)', '53': 'DNS (Domain Name System)',
+    '25': 'SMTP (Simple Mail Transfer Protocol)', '53': 'DNS (Domain System)',
     '67': 'DHCP Server', '68': 'DHCP Client', '69': 'TFTP (Trivial File Transfer Protocol)',
     '80': 'HTTP (Hypertext Transfer Protocol)', '110': 'POP3 (Post Office Protocol v3)',
     '119': 'NNTP (Network News Transfer Protocol)', '123': 'NTP (Network Time Protocol)',
@@ -59,6 +60,15 @@ SERVICE_PORTS_OF_INTEREST = {
     # Adicione ou remova outras portas conforme sua necessidade de visibilidade.
     # Ex: '21' para FTP, '1521' para Oracle, etc.
 }
+
+# --- Configurações de Rede para o Diagrama ---
+# Ajuste estes valores para o seu ambiente
+LOCAL_HOST_IP_PREFIX = '192.168.1.' # Usado para determinar se um IP é da rede local (ex: '192.168.1.' para /24)
+GATEWAY_IP = '192.168.1.1' # O IP do seu gateway/firewall
+
+def is_same_subnet(ip_address, subnet_prefix):
+    """Verifica se um endereço IP pertence à mesma sub-rede baseada em um prefixo."""
+    return ip_address.startswith(subnet_prefix)
 
 
 def collect_connection_data():
@@ -290,7 +300,7 @@ def parse_connection_output(raw_output):
     print("--- Análise da saída bruta concluída ---")
     return connections
 
-def generate_network_diagram(connections, filename="network_diagram", format="png"):
+def generate_network_diagram(connections, filename="network_diagram", format="png", current_hostname="", current_host_ip=""):
     """
     Gera um diagrama de rede a partir das conexões usando Graphviz.
     O diagrama será salvo como um arquivo de imagem (ex: .png).
@@ -318,11 +328,26 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
 
         # Nós de IP Local
         if local_ip_node not in nodes:
-            dot.node(local_ip_node, local_ip_node, shape='box', style='filled', color='lightblue')
+            node_label = local_ip_node
+            node_color = 'lightblue'
+
+            # Se o IP local corresponde ao IP da máquina que está executando o script, adicione o nome do host
+            if current_host_ip and local_ip_node == current_host_ip:
+                node_label = f"Este Host ({current_hostname})\n{local_ip_node}"
+                node_color = 'skyblue' # Uma cor ligeiramente diferente para o host local
+            
+            dot.node(local_ip_node, node_label, shape='box', style='filled', color=node_color)
             nodes.add(local_ip_node)
 
-        # Nós de IP Estrangeiro
-        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::' and foreign_ip_node not in nodes:
+        # Adiciona o nó do Gateway se ainda não existir
+        if GATEWAY_IP not in nodes:
+            # Novo rótulo para o gateway
+            gateway_label = f"Gateway/Firewall\n{GATEWAY_IP}"
+            dot.node(GATEWAY_IP, gateway_label, shape='box', style='filled', color='orange', fontcolor='black')
+            nodes.add(GATEWAY_IP)
+
+        # Nós de IP Estrangeiro (apenas se não for o gateway e não for um IP genérico)
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::' and foreign_ip_node != GATEWAY_IP and foreign_ip_node not in nodes:
             dot.node(foreign_ip_node, foreign_ip_node, shape='box', style='filled', color='lightgreen')
             nodes.add(foreign_ip_node)
         
@@ -348,20 +373,31 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
         process_node_id = f"PID_{conn['pid']}_{sanitized_process_name}"
 
         # Aresta: Processo -> IP Local (representando o uso da porta local)
-        # Sempre exibimos essa aresta para mostrar qual processo usa qual porta local no host.
         label_process_to_local_ip = f"Usa Porta: {conn['local_port']}\n({conn['service_local']})"
         dot.edge(process_node_id, local_ip_node, label=label_process_to_local_ip, style='dashed', color='gray')
 
 
         # Aresta: IP Local -> IP Estrangeiro (conexão de rede principal)
-        # Exibe apenas se não for um IP genérico (0.0.0.0, *, ::) ou se for um LISTENING
-        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::':
-            label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
-            dot.edge(local_ip_node, foreign_ip_node, label=label_connection, color='blue', penwidth='1.5')
+        if conn['state'] == 'ESTABLISHED':
+            # Se a conexão é para um IP na mesma sub-rede (exceto o gateway), desenhe direto
+            if is_same_subnet(foreign_ip_node, LOCAL_HOST_IP_PREFIX) and foreign_ip_node != GATEWAY_IP:
+                label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
+                dot.edge(local_ip_node, foreign_ip_node, label=label_connection, color='blue', penwidth='1.5')
+            # Se a conexão é para o próprio gateway (tráfego direto para o roteador/firewall)
+            elif foreign_ip_node == GATEWAY_IP:
+                label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
+                dot.edge(local_ip_node, GATEWAY_IP, label=label_connection, color='purple', penwidth='1.5') # Cor diferente para tráfego para o gateway
+            # Se a conexão é para a internet (não é local e não é o gateway)
+            elif foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::':
+                # Conexão do host para o gateway (tráfego de saída para a internet)
+                dot.edge(local_ip_node, GATEWAY_IP, label=f"Tráfego para Internet\n(Via {conn['protocol']} {conn['foreign_port']})", color='red', penwidth='2.5', style='bold')
+                # Conexão do gateway para o IP externo
+                label_connection_gateway_to_foreign = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
+                dot.edge(GATEWAY_IP, foreign_ip_node, label=label_connection_gateway_to_foreign, color='darkgreen', penwidth='1.5')
+        
         elif conn['state'] == 'LISTENING' and conn['local_port']:
             # Para LISTENERS, a "conexão" é com o próprio IP local, representando que a porta está aberta para o mundo
             # E a aresta principal deve vir do IP local.
-            # Essa aresta é importante para mostrar que o host está oferecendo um serviço.
             label_listening = f"LISTEN {conn['local_port']}\n({conn['service_local']})"
             # Usar uma aresta para si mesmo para indicar que a porta está aberta para conexões
             dot.edge(local_ip_node, local_ip_node, label=label_listening, dir='none', color='orange', style='dotted', fontcolor='red')
@@ -389,18 +425,24 @@ def main():
 
         parsed_connections = parse_connection_output(raw_output)
         
-        if parsed_connections:
-            print("\n--- Conexões Analisadas e Enriquecidas ---")
-            for conn in parsed_connections:
-                print(f"Proto: {conn['protocol']}, Local: {conn['local_address']}:{conn['local_port']} ({conn['service_local']}), "
-                      f"Foreign: {conn['foreign_address']}:{conn['foreign_port']} ({conn['service_foreign']}), "
-                      f"State: {conn['state']}, PID: {conn['pid']} ({conn['process_name']})")
-                if conn['process_path']:
-                    print(f"  Path: {conn['process_path']}")
-            print(f"\nTotal de conexões encontradas: {len(parsed_connections)}")
+        # --- Obter Hostname e IP para rotulagem no diagrama ---
+        current_hostname = ""
+        current_host_ip = ""
+        try:
+            current_hostname = socket.gethostname()
+            current_host_ip = socket.gethostbyname(current_hostname)
+            print(f"Host local detectado: {current_hostname} ({current_host_ip})")
+        except Exception as e:
+            print(f"Não foi possível obter o nome ou IP do host local: {e}. O diagrama não terá essa identificação completa.")
+            current_hostname = "Desconhecido" # Fallback para o nome
+            current_host_ip = "" # Garante que está vazio se houve erro para não tentar comparar
 
-            # Gerar o diagrama após a coleta e análise
-            generate_network_diagram(parsed_connections, filename="network_diagram", format="png")
+        if parsed_connections:
+            print(f"\nTotal de conexões relevantes encontradas: {len(parsed_connections)}")
+
+            # Gerar o diagrama após a coleta e análise, passando o hostname e IP
+            generate_network_diagram(parsed_connections, filename="network_diagram", format="png",
+                                     current_hostname=current_hostname, current_host_ip=current_host_ip)
         else:
             print("\nNenhuma conexão relevante encontrada para análise ou diagrama.")
         print("\n--- Análise e Geração de Diagrama Concluídas ---")
