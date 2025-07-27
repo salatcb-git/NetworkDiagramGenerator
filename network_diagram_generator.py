@@ -7,7 +7,7 @@ import datetime
 
 # Dicionário para mapear portas conhecidas a nomes de serviços
 # Este dicionário continua importante para nomear as portas que você *decidir* incluir.
-# Ele NÃO é mais o filtro principal.
+# Ele NÃO é mais o filtro principal para a relevância.
 KNOWN_PORTS = {
     '7': 'Echo', '9': 'Discard', '13': 'Daytime', '17': 'Quote of the Day', '19': 'Chargen',
     '20': 'FTP Data', '21': 'FTP Control', '22': 'SSH (Secure Shell)', '23': 'Telnet',
@@ -255,25 +255,21 @@ def parse_connection_output(raw_output):
             continue
 
         # 3. Principal filtro: Incluir apenas conexões que usam portas de serviço de interesse
-        # A conexão é considerada relevante se a porta local OU a porta estrangeira estiver na nossa lista.
+        # A conexão é considerada relevante se a porta local (para LISTEN) ou a porta estrangeira (para ESTABLISHED)
+        # estiver na nossa lista SERVICE_PORTS_OF_INTEREST.
         is_local_port_of_interest = str(local_port_num) in SERVICE_PORTS_OF_INTEREST
         is_foreign_port_of_interest = str(foreign_port_num) in SERVICE_PORTS_OF_INTEREST
 
-        # Para ser incluída, a conexão deve ter uma porta de interesse,
-        # OU ser um serviço LISTENING em 0.0.0.0 ou :: (que representa "qualquer interface").
-        # Se for LISTENING e a porta for de interesse, inclui.
-        # Se for ESTABLISHED e a porta local OU estrangeira for de interesse, inclui.
         if state == 'LISTENING':
             # Para serviços LISTENING, o que importa é a porta local estar na lista de interesse.
-            # O foreign_address sendo 0.0.0.0 ou :: é normal para LISTEN.
             if not is_local_port_of_interest:
                 # print(f"DEBUG: Ignorando serviço LISTENING em porta não de interesse: {local_port} - {stripped_line}")
                 continue
         elif state == 'ESTABLISHED':
-            # Para conexões ESTABLISHED, precisamos que a porta local ou a porta estrangeira
-            # seja uma das portas de serviço de interesse.
-            if not is_local_port_of_interest and not is_foreign_port_of_interest:
-                # print(f"DEBUG: Ignorando conexão ESTABLISHED sem porta de serviço conhecida: {foreign_port} (Foreign) / {local_port} (Local) - {stripped_line}")
+            # Para conexões ESTABLISHED, a porta relevante para o administrador de rede é a *porta de serviço estrangeira*.
+            # Se a porta estrangeira NÃO for de interesse, ignoramos a conexão.
+            if not is_foreign_port_of_interest:
+                # print(f"DEBUG: Ignorando conexão ESTABLISHED sem porta de serviço estrangeira conhecida: {foreign_port} - {stripped_line}")
                 continue
 
         # --- REGRAS DE FILTRAGEM REVISADAS TERMINAM AQUI ---
@@ -352,21 +348,20 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
         process_node_id = f"PID_{conn['pid']}_{sanitized_process_name}"
 
         # Aresta: Processo -> IP Local (representando o uso da porta local)
-        # Se a porta local é efêmera, é uma conexão de saída
-        # Se a porta local é conhecida e está LISTENING, é um serviço
-        
-        # Label para a aresta do processo para o IP local
+        # Sempre exibimos essa aresta para mostrar qual processo usa qual porta local no host.
         label_process_to_local_ip = f"Usa Porta: {conn['local_port']}\n({conn['service_local']})"
         dot.edge(process_node_id, local_ip_node, label=label_process_to_local_ip, style='dashed', color='gray')
 
 
         # Aresta: IP Local -> IP Estrangeiro (conexão de rede principal)
-        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::': # Adiciona :: para IPv6
+        # Exibe apenas se não for um IP genérico (0.0.0.0, *, ::) ou se for um LISTENING
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::':
             label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
             dot.edge(local_ip_node, foreign_ip_node, label=label_connection, color='blue', penwidth='1.5')
         elif conn['state'] == 'LISTENING' and conn['local_port']:
             # Para LISTENERS, a "conexão" é com o próprio IP local, representando que a porta está aberta para o mundo
-            # E a aresta principal deve vir do IP local
+            # E a aresta principal deve vir do IP local.
+            # Essa aresta é importante para mostrar que o host está oferecendo um serviço.
             label_listening = f"LISTEN {conn['local_port']}\n({conn['service_local']})"
             # Usar uma aresta para si mesmo para indicar que a porta está aberta para conexões
             dot.edge(local_ip_node, local_ip_node, label=label_listening, dir='none', color='orange', style='dotted', fontcolor='red')
