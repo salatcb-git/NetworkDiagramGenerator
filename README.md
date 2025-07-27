@@ -13,6 +13,37 @@ Uma ferramenta em Python para detectar e visualizar conexões de rede ativas em 
 
 ---
 
+## Visão Geral e Como o Diagrama é Gerado
+
+O script utiliza comandos específicos do sistema operacional (`netstat` no Windows ou `ss` no Linux/macOS) para coletar dados brutos de conexões de rede. Ele então processa esses dados, enriquecendo-os com informações de processo (PID, nome, caminho do executável) e os filtra com base em uma lista configurável de "portas de serviço de interesse" para focar no tráfego mais relevante para análise de segurança ou rede.
+
+Finalmente, ele usa a biblioteca Graphviz para renderizar um grafo direcionado, que visualiza o fluxo de tráfego de forma intuitiva:
+
+* **Processos (Elipses Amarelas)**: Representam aplicativos que estão realizando ou escutando conexões. Cada processo é rotulado com seu nome e PID.
+* **IP do Host Local (Caixas Azuis Claras/Celestes)**: O endereço IP da sua máquina onde o script está sendo executado. Este nó é explicitamente identificado com o nome do seu host local (`Este Host (SeuNomeDeHost)`).
+* **Gateway/Firewall (Caixa Laranja)**: O endereço IP do seu gateway de rede ou firewall, atuando como ponto de saída e entrada principal para a internet. É rotulado como `Gateway/Firewall`.
+* **IPs Remotos (Caixas Verdes Claras)**: Endereços IP de hosts externos aos quais seu sistema está se conectando ou que estão se conectando a ele.
+* **Arestas (Linhas de Conexão)**: Representam o fluxo de tráfego entre os nós, rotuladas com o protocolo, porta e nome do serviço (se conhecido).
+
+    * **Processo -> IP Local (Linha Pontilhada Cinza)**: Indica que um processo está usando uma porta específica no IP local.
+    * **IP Local -> Gateway (Linha Vermelha Sólida, mais grossa)**: Indica tráfego de saída do seu host para a internet, passando pelo gateway.
+    * **Gateway -> IP Remoto (Linha Verde Escura Sólida)**: Representa o tráfego do gateway para um host externo.
+    * **Conexões Locais Diretas (Linha Azul Sólida)**: Tráfego entre IPs dentro da sua própria sub-rede (excluindo o gateway).
+    * **Porta LISTENING (Aresta Laranja Pontilhada sobre o IP Local)**: Indica que uma porta está aberta e escutando por conexões de entrada, esperando por um cliente.
+
+---
+
+## Exemplo de Diagrama de Rede
+
+Aqui está um exemplo de um diagrama gerado pelo script. O diagrama real pode variar significativamente com base nas conexões ativas do seu sistema e nas suas configurações de rede.
+
+![Exemplo de Diagrama de Rede](images/network_diagram.png)
+
+* **Observação:** A identificação "Este Host (SeuNomeDeHost)" e "Gateway/Firewall" aparecem dinamicamente no diagrama gerado, tornando-o mais claro e personalizado.
+* **Organização:** O arquivo da imagem (`network_diagram.png`) é armazenado na pasta `images/` dentro do repositório para uma melhor organização e exibição no GitHub.
+
+---
+
 # Por Que Um Bom Diagrama de Rede é Essencial?
 
 Um diagrama de rede claro e atualizado é muito mais do que uma simples representação visual; ele é uma ferramenta estratégica crucial para a gestão e segurança de qualquer infraestrutura de TI. Ele pode ser essencial para:
@@ -82,7 +113,7 @@ Para rodar este script, você precisará ter o Python e algumas bibliotecas e fe
 1.  **Clone o Repositório:**
     Abra seu terminal e clone este repositório:
     ```bash
-    git clone https://github.com/salatcb-git/NetworkDiagramGenerator.git
+    git clone [https://github.com/salatcb-git/NetworkDiagramGenerator.git](https://github.com/salatcb-git/NetworkDiagramGenerator.git)
     cd NetworkDiagramGenerator
     ```
 2.  **Instale as Dependências Python:**
@@ -92,16 +123,49 @@ Para rodar este script, você precisará ter o Python e algumas bibliotecas e fe
     ```
     *(Use `pip3` se `pip` não funcionar para Python 3.)*
 
-3.  **Execute o Script:**
+3.  **Configure as Definições de Rede (Crucial!)**
+    Abra o arquivo `network_diagram_generator.py` em um editor de texto e ajuste as seguintes variáveis no início do arquivo para corresponderem à sua rede:
+
+    ```python
+    # --- Configurações de Rede para o Diagrama ---
+    # Ajuste estes valores para o seu ambiente
+    LOCAL_HOST_IP_PREFIX = '192.168.1.' # O prefixo da sua sub-rede local (ex: '192.168.1.' para uma rede 192.168.1.0/24)
+    GATEWAY_IP = '192.168.1.1'           # O endereço IP do seu gateway/roteador/firewall
+    ```
+    Você também pode personalizar a lista `SERVICE_PORTS_OF_INTEREST` para incluir ou excluir portas específicas que são relevantes para a sua análise.
+
+4.  **Execute o Script:**
     No terminal, dentro da pasta do projeto, execute:
     ```bash
     python network_diagram_generator.py
     ```
     *(Ou `python3 network_diagram_generator.py` se `python` não funcionar.)*
+    O script imprimirá no console as conexões encontradas e os passos da geração do diagrama.
 
-4.  **Obtenha o Diagrama:**
-    * O script imprimirá no console as conexões encontradas.
-    * Após a execução, um arquivo de imagem (`network_diagram.png` por padrão) será gerado na **mesma pasta do script**. Este arquivo contém o diagrama visual das conexões de rede.
+5.  **Visualize o Diagrama e Adicione-o ao Git:**
+    Após a execução bem-sucedida, um arquivo de imagem (`network_diagram.png` por padrão) será gerado na **mesma pasta do script**.
+
+    Para que o diagrama seja exibido no seu `README.md` quando você visitar seu repositório Git (como no GitHub):
+
+    a.  **Crie a pasta `images/` (se ainda não existir):**
+        ```bash
+        mkdir images
+        ```
+        *(Ou, se preferir via interface web do Git, crie um novo arquivo como `images/.gitkeep`.)*
+
+    b.  **Mova o diagrama para a pasta `images/`:**
+        ```bash
+        mv network_diagram.png images/
+        ```
+        *(No Windows, use `move network_diagram.png images\`)*
+
+    c.  **Adicione e commite as mudanças ao Git:**
+        ```bash
+        git add .
+        git commit -m "Atualiza README e adiciona diagrama de rede gerado"
+        git push origin main # Ou 'master', dependendo do nome da sua branch principal
+        ```
+    Após o `git push`, o diagrama será visível no seu `README.md` na plataforma do seu repositório.
 
 ---
 
