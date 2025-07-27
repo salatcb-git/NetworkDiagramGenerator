@@ -22,11 +22,10 @@ KNOWN_PORTS = {
     '514': 'Syslog', '587': 'SMTP (Submission)', '636': 'LDAPS (LDAP Secure)',
     '993': 'IMAPS (IMAP Secure)', '995': 'POP3S (POP3 Secure)', '1433': 'Microsoft SQL Server',
     '1521': 'Oracle Database', '3306': 'MySQL Database', '3389': 'RDP (Remote Desktop Protocol)',
-    '5060': 'SIP (Session Initiation Protocol)', '5061': 'SIP TLS',
+    '5060': 'SIP (Session Initialization Protocol)', '5061': 'SIP TLS',
     '5432': 'PostgreSQL Database', '5900': 'VNC (Virtual Network Computing)',
     '8000': 'HTTP (Alternate) / Web Server', '8080': 'HTTP Proxy / Web Server (Alternate)',
     '8443': 'HTTPS (Alternate) / Web Server', '27017': 'MongoDB Database',
-    '50000': 'SAP Router / Other Custom Applications',
     '49152-65535': 'Ephemeral Ports (Usually Client Connections)' # Faixa comum de portas efêmeras
 }
 
@@ -48,7 +47,8 @@ def collect_connection_data():
 
     try:
         # Adiciona timeout para evitar que o comando trave indefinidamente
-        process = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+        # Adicionado encoding='latin-1' para tentar resolver problemas de caracteres especiais no Windows
+        process = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30, encoding='latin-1')
         return process.stdout
     except subprocess.CalledProcessError as e:
         print(f"Erro ao executar comando: {e}")
@@ -60,6 +60,11 @@ def collect_connection_data():
     except subprocess.TimeoutExpired:
         print(f"O comando '{command[0]}' excedeu o tempo limite.")
         return None
+    except UnicodeDecodeError as e:
+        print(f"Erro de decodificação de caracteres: {e}")
+        print("Tentando com uma codificação diferente (ex: cp850 ou cp1252) pode resolver.")
+        return None
+
 
 def get_process_info(pid):
     """
@@ -106,36 +111,61 @@ def parse_connection_output(raw_output):
     connections = []
     lines = raw_output.strip().split('\n')
 
-    is_windows_output = '  Proto' in lines[0] if lines else False
-    is_linux_output = 'Netid' in lines[0] if lines else False
+    is_windows_output = False
+    # Procura a linha do cabeçalho do Windows de forma mais flexível
+    for line in lines:
+        if ('Proto' in line and 'local' in line.lower() and 'externo' in line.lower() and 'estado' in line.lower() and 'pid' in line.lower()) or \
+           ('Proto' in line and 'Local Address' in line and 'Foreign Address' in line and 'State' in line and 'PID' in line):
+            is_windows_output = True
+            print("DEBUG: Cabeçalho de saída do Windows detectado (flexível).")
+            break
+    
+    is_linux_output = False
+    if lines and 'Netid' in lines[0] and 'State' in lines[0]: # Linux ss header check
+        is_linux_output = True
+        print("DEBUG: Cabeçalho de saída do Linux (ss) detectado.")
 
     data_started = False
-    for line in lines:
-        if is_windows_output and line.startswith('  Proto'):
-            data_started = True
-            continue
-        elif is_linux_output and line.startswith('Netid'):
-            data_started = True
-            continue
-        if not data_started or not line.strip():
+    print("\n--- Iniciando análise da saída bruta ---")
+    for i, line in enumerate(lines):
+        stripped_line = line.strip()
+
+        if not data_started:
+            if (is_windows_output and (('Proto' in stripped_line and 'local' in stripped_line.lower() and 'externo' in stripped_line.lower() and 'estado' in stripped_line.lower() and 'pid' in stripped_line.lower()) or 
+                                      ('Proto' in stripped_line and 'Local Address' in stripped_line and 'Foreign Address' in stripped_line and 'State' in stripped_line and 'PID' in stripped_line))) or \
+               (is_linux_output and stripped_line.startswith('Netid')):
+                data_started = True
+                print(f"DEBUG: Linha de cabeçalho encontrada na linha {i}. Iniciando coleta de dados.")
+                continue # Pular a linha do cabeçalho
+            else:
+                continue # Ignora linhas antes do cabeçalho
+        
+        if not stripped_line: # Ignora linhas vazias após o cabeçalho
             continue
 
-        parts = line.strip().split()
+        # Use re.split para lidar com múltiplos espaços como um único delimitador
+        parts = re.split(r'\s+', stripped_line)
+
+        # print(f"DEBUG: Linha {i+1} processada: '{stripped_line}'")
+        # print(f"DEBUG: Partes obtidas: {parts}")
 
         protocol = ''
         local_address = ''
         foreign_address = ''
         state = ''
         pid_str = ''
-        process_name_from_ss = '' # Para capturar o nome do processo bruto do ss
+        process_name_from_ss = ''
 
         if is_windows_output:
-            if len(parts) >= 5:
+            if len(parts) >= 5: # Garante que há partes suficientes para Windows
                 protocol = parts[0]
                 local_address = parts[1]
                 foreign_address = parts[2]
                 state = parts[3]
                 pid_str = parts[4]
+            else:
+                # print(f"DEBUG: Linha do Windows ignorada por ter menos de 5 partes esperadas: {stripped_line}")
+                continue
         elif is_linux_output:
             # Padrão para ss: Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port users:(("process_name",pid=PID,fd=FD))
             if len(parts) >= 6:
@@ -144,33 +174,36 @@ def parse_connection_output(raw_output):
                 local_address = parts[4]
                 foreign_address = parts[5]
 
-                # Tenta extrair PID e nome do processo da parte 'users:(("...",pid=...",...))'
-                # Usando regex para maior robustez
-                match_users_info = re.search(r'users:\(\("([^"]+)",pid=(\d+),fd=\d+\)\)', line)
+                match_users_info = re.search(r'users:\(\("([^"]+)",pid=(\d+),fd=\d+\)\)', stripped_line)
                 if match_users_info:
                     process_name_from_ss = match_users_info.group(1)
                     pid_str = match_users_info.group(2)
-                else: # Fallback para casos sem info de users (ex: kernel, ou outras infos no final)
-                    # No Linux, se não há 'users' info, o PID pode estar no final ou ser ausente.
-                    # Vamos tentar pegar o último 'part' como PID se for numérico.
-                    if parts[-1].isdigit():
+                else:
+                    # Fallback para casos sem info de users (ex: kernel, ou outras infos no final)
+                    if parts and parts[-1].isdigit():
                         pid_str = parts[-1]
-                    elif len(parts) >= 2 and parts[-2].isdigit(): # As vezes o PID esta na penultima posicao para alguns servicos
-                         pid_str = parts[-2]
-        
-        # Extrai a porta do endereço local e estrangeiro
-        # Lida com endereços IPv6 que podem ter múltiplos ':'
+                    elif len(parts) >= 2 and parts[-2].isdigit():
+                        pid_str = parts[-2]
+            else:
+                # print(f"DEBUG: Linha do Linux ignorada por ter menos de 6 partes esperadas: {stripped_line}")
+                continue
+
+        # Se as informações essenciais não foram extraídas, pule esta linha.
+        if not protocol or not local_address or not foreign_address or not pid_str:
+            # print(f"DEBUG: Linha ignorada devido a informações incompletas (protocol, local, foreign, ou pid ausente): {stripped_line}")
+            continue
+
         local_port = local_address.split(':')[-1] if ':' in local_address else ''
         foreign_port = foreign_address.split(':')[-1] if ':' in foreign_address else ''
 
         service_name_foreign = get_service_name_from_port(foreign_port, protocol)
-        service_name_local = get_service_name_from_port(local_port, protocol) # Também para a porta local
+        service_name_local = get_service_name_from_port(local_port, protocol)
         
         process_info = get_process_info(pid_str)
         
         final_process_name = process_info['name']
         if is_linux_output and process_name_from_ss and ('Processo não encontrado' in final_process_name or 'Erro psutil' in final_process_name):
-            final_process_name = process_name_from_ss # Usa o nome do ss se psutil falhar ou for generico
+            final_process_name = process_name_from_ss
 
         connections.append({
             'protocol': protocol,
@@ -182,9 +215,10 @@ def parse_connection_output(raw_output):
             'pid': pid_str,
             'process_name': final_process_name,
             'process_path': process_info['path'],
-            'service_foreign': service_name_foreign, # Serviço da porta remota
-            'service_local': service_name_local # Serviço da porta local (útil para LISTENERS)
+            'service_foreign': service_name_foreign,
+            'service_local': service_name_local
         })
+    print("--- Análise da saída bruta concluída ---")
     return connections
 
 def generate_network_diagram(connections, filename="network_diagram", format="png"):
@@ -209,9 +243,9 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
         local_ip_full = conn['local_address']
         foreign_ip_full = conn['foreign_address']
         
-        # Remove a porta do IP para o ID do nó
-        local_ip_node = local_ip_full.split(':')[0] if ':' in local_ip_full else local_ip_full
-        foreign_ip_node = foreign_ip_full.split(':')[0] if ':' in foreign_ip_full else foreign_ip_full
+        # Remove a porta do IP para o ID do nó, tratando IPv6
+        local_ip_node = re.sub(r':\d+$', '', local_ip_full).replace('[', '').replace(']', '')
+        foreign_ip_node = re.sub(r':\d+$', '', foreign_ip_full).replace('[', '').replace(']', '')
 
         # Nós de IP Local
         if local_ip_node not in nodes:
@@ -219,13 +253,15 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
             nodes.add(local_ip_node)
 
         # Nós de IP Estrangeiro
-        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node not in nodes:
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::' and foreign_ip_node not in nodes:
             dot.node(foreign_ip_node, foreign_ip_node, shape='box', style='filled', color='lightgreen')
             nodes.add(foreign_ip_node)
         
         # Nó do Processo Local
         # Cria um ID único para o processo incluindo o PID e o nome
-        process_node_id = f"PID_{conn['pid']}_{conn['process_name'].replace(' ', '_').replace('.', '_')}" # Sanitiza para ID
+        # Sanitiza o nome do processo para uso em ID de nó Graphviz
+        sanitized_process_name = re.sub(r'[^a-zA-Z0-9_]', '', conn['process_name'])
+        process_node_id = f"PID_{conn['pid']}_{sanitized_process_name}" 
         process_label = f"{conn['process_name']}\n(PID: {conn['pid']})"
         if process_node_id not in nodes:
             dot.node(process_node_id, process_label, shape='ellipse', style='filled', color='lightyellow')
@@ -236,10 +272,11 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
         local_ip_full = conn['local_address']
         foreign_ip_full = conn['foreign_address']
         
-        local_ip_node = local_ip_full.split(':')[0] if ':' in local_ip_full else local_ip_full
-        foreign_ip_node = foreign_ip_full.split(':')[0] if ':' in foreign_ip_full else foreign_ip_full
+        local_ip_node = re.sub(r':\d+$', '', local_ip_full).replace('[', '').replace(']', '')
+        foreign_ip_node = re.sub(r':\d+$', '', foreign_ip_full).replace('[', '').replace(']', '')
 
-        process_node_id = f"PID_{conn['pid']}_{conn['process_name'].replace(' ', '_').replace('.', '_')}"
+        sanitized_process_name = re.sub(r'[^a-zA-Z0-9_]', '', conn['process_name'])
+        process_node_id = f"PID_{conn['pid']}_{sanitized_process_name}"
 
         # Aresta: Processo -> IP Local (representando o uso da porta local)
         # Se a porta local é efêmera, é uma conexão de saída
@@ -251,7 +288,7 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
 
 
         # Aresta: IP Local -> IP Estrangeiro (conexão de rede principal)
-        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*':
+        if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::': # Adiciona :: para IPv6
             label_connection = f"{conn['protocol']} {conn['foreign_port']}\n({conn['service_foreign']})"
             dot.edge(local_ip_node, foreign_ip_node, label=label_connection, color='blue', penwidth='1.5')
         elif conn['state'] == 'LISTENING' and conn['local_port']:
@@ -278,6 +315,10 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
 def main():
     raw_output = collect_connection_data()
     if raw_output:
+        print("\n--- Saída bruta do comando de conexão ---")
+        print(raw_output) # Imprime a saída bruta para depuração
+        print("--- Fim da saída bruta ---")
+
         parsed_connections = parse_connection_output(raw_output)
         
         if parsed_connections:
