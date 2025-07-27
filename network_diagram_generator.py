@@ -4,11 +4,9 @@ import psutil
 import re
 import graphviz
 import datetime
-import socket # <--- NOVA IMPORTAÇÃO AQUI
+import socket # <--- Importação necessária para resolução de hostname
 
 # Dicionário para mapear portas conhecidas a nomes de serviços
-# Este dicionário continua importante para nomear as portas que você *decidir* incluir.
-# Ele NÃO é mais o filtro principal para a relevância.
 KNOWN_PORTS = {
     '7': 'Echo', '9': 'Discard', '13': 'Daytime', '17': 'Quote of the Day', '19': 'Chargen',
     '20': 'FTP Data', '21': 'FTP Control', '22': 'SSH (Secure Shell)', '23': 'Telnet',
@@ -30,9 +28,9 @@ KNOWN_PORTS = {
     '8443': 'HTTPS (Alternate) / Web Server', '27017': 'MongoDB Database'
 }
 
-# --- ESTA É A LISTA CHAVE PARA O SEU FILTRO ---
+# --- LISTA DE PORTAS CHAVE PARA FILTRAGEM ---
 # Defina AQUI as portas que você *realmente* considera relevantes para a análise de firewall.
-# Qualquer porta que NÃO esteja nesta lista será ignorada.
+# Conexões que NÃO usam essas portas (local para LISTEN, estrangeira para ESTABLISHED) serão ignoradas.
 SERVICE_PORTS_OF_INTEREST = {
     '22',   # SSH
     '23',   # Telnet (embora desencorajado, pode ser relevante em alguns contextos)
@@ -174,7 +172,7 @@ def parse_connection_output(raw_output):
                 continue
             else:
                 continue
-        
+            
         if not stripped_line: # Ignora linhas vazias após o cabeçalho
             continue
 
@@ -346,10 +344,31 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
             dot.node(GATEWAY_IP, gateway_label, shape='box', style='filled', color='orange', fontcolor='black')
             nodes.add(GATEWAY_IP)
 
+        # ### NOVA LÓGICA DE RESOLUÇÃO DE HOSTNAME AQUI ###
         # Nós de IP Estrangeiro (apenas se não for o gateway e não for um IP genérico)
         if foreign_ip_node and foreign_ip_node != '0.0.0.0' and foreign_ip_node != '*' and foreign_ip_node != '::' and foreign_ip_node != GATEWAY_IP and foreign_ip_node not in nodes:
-            dot.node(foreign_ip_node, foreign_ip_node, shape='box', style='filled', color='lightgreen')
+            foreign_node_label = foreign_ip_node # Rótulo padrão é apenas o IP
+            try:
+                # Tenta resolver o nome de host para o IP estrangeiro
+                # socket.gethostbyaddr retorna (hostname, aliaslist, ipaddrlist)
+                foreign_hostname, _, _ = socket.gethostbyaddr(foreign_ip_node)
+                # Se um hostname válido for encontrado e for diferente do próprio IP, use-o
+                if foreign_hostname and foreign_hostname != foreign_ip_node:
+                    foreign_node_label = f"{foreign_hostname}\n{foreign_ip_node}"
+            except socket.herror:
+                # Erro de host (e.g., IP não tem registro PTR, ou é um IP privado sem DNS reverso)
+                pass 
+            except socket.timeout:
+                # A consulta DNS excedeu o tempo limite
+                pass
+            except Exception as e:
+                # Captura outras exceções que possam ocorrer durante a resolução
+                # print(f"Aviso: Não foi possível resolver o hostname para {foreign_ip_node}: {e}") # Descomente para depurar
+                pass
+
+            dot.node(foreign_ip_node, foreign_node_label, shape='box', style='filled', color='lightgreen')
             nodes.add(foreign_ip_node)
+        # ### FIM DA NOVA LÓGICA ###
         
         # Nó do Processo Local
         # Cria um ID único para o processo incluindo o PID e o nome
@@ -420,7 +439,7 @@ def main():
     raw_output = collect_connection_data()
     if raw_output:
         print("\n--- Saída bruta do comando de conexão ---")
-        print(raw_output) # Imprime a saída bruta para depuração
+        # print(raw_output) # Imprime a saída bruta para depuração - descomente se precisar ver
         print("--- Fim da saída bruta ---")
 
         parsed_connections = parse_connection_output(raw_output)
