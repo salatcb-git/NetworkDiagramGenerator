@@ -3,11 +3,12 @@ import os
 import psutil
 import re
 import graphviz
-import datetime # Importa o módulo datetime
+import datetime
 
 # Dicionário para mapear portas conhecidas a nomes de serviços
+# Este dicionário continua importante para nomear as portas que você *decidir* incluir.
+# Ele NÃO é mais o filtro principal.
 KNOWN_PORTS = {
-    # TCP/UDP
     '7': 'Echo', '9': 'Discard', '13': 'Daytime', '17': 'Quote of the Day', '19': 'Chargen',
     '20': 'FTP Data', '21': 'FTP Control', '22': 'SSH (Secure Shell)', '23': 'Telnet',
     '25': 'SMTP (Simple Mail Transfer Protocol)', '53': 'DNS (Domain Name System)',
@@ -25,9 +26,40 @@ KNOWN_PORTS = {
     '5060': 'SIP (Session Initialization Protocol)', '5061': 'SIP TLS',
     '5432': 'PostgreSQL Database', '5900': 'VNC (Virtual Network Computing)',
     '8000': 'HTTP (Alternate) / Web Server', '8080': 'HTTP Proxy / Web Server (Alternate)',
-    '8443': 'HTTPS (Alternate) / Web Server', '27017': 'MongoDB Database',
-    '49152-65535': 'Ephemeral Ports (Usually Client Connections)' # Faixa comum de portas efêmeras
+    '8443': 'HTTPS (Alternate) / Web Server', '27017': 'MongoDB Database'
 }
+
+# --- ESTA É A LISTA CHAVE PARA O SEU FILTRO ---
+# Defina AQUI as portas que você *realmente* considera relevantes para a análise de firewall.
+# Qualquer porta que NÃO esteja nesta lista será ignorada.
+SERVICE_PORTS_OF_INTEREST = {
+    '22',   # SSH
+    '23',   # Telnet (embora desencorajado, pode ser relevante em alguns contextos)
+    '25',   # SMTP
+    '53',   # DNS
+    '80',   # HTTP
+    '110',  # POP3
+    '143',  # IMAP
+    '389',  # LDAP
+    '443',  # HTTPS
+    '445',  # SMB/CIFS (compartilhamento de arquivos)
+    '587',  # SMTP Submission
+    '636',  # LDAPS
+    '993',  # IMAPS
+    '995',  # POP3S
+    '1433', # Microsoft SQL Server
+    '3306', # MySQL
+    '3389', # RDP
+    '5432', # PostgreSQL
+    '5060', # SIP
+    '5061', # SIP TLS
+    '8000', # Portas comuns para servidores web alternativos
+    '8080',
+    '8443'
+    # Adicione ou remova outras portas conforme sua necessidade de visibilidade.
+    # Ex: '21' para FTP, '1521' para Oracle, etc.
+}
+
 
 def collect_connection_data():
     """
@@ -91,23 +123,17 @@ def get_process_info(pid):
 def get_service_name_from_port(port, protocol):
     """
     Retorna o nome de um serviço conhecido para uma dada porta.
-    Também verifica se a porta está na faixa de portas efêmeras.
+    Se a porta não for conhecida, retorna "Serviço Desconhecido".
     """
-    port_str = str(port).split(':')[-1] # Pega a última parte se for IPv6 ou algo assim
+    port_str = str(port).split(':')[-1]
     try:
         port_num = int(port_str)
-        # Verifica portas efêmeras (comum em conexões de saída de clientes)
-        if 49152 <= port_num <= 65535:
-            return "Porta Efêmera (Cliente)"
+        # Usa o KNOWN_PORTS apenas para mapear o nome, não para filtrar
         return KNOWN_PORTS.get(str(port_num), "Serviço Desconhecido")
     except ValueError:
         return "Porta Inválida"
 
 def parse_connection_output(raw_output):
-    """
-    Analisa a saída do netstat (Windows) ou ss (Linux) e extrai as informações das conexões,
-    enriquecendo-as com nomes de processos e inferência de serviços.
-    """
     connections = []
     lines = raw_output.strip().split('\n')
 
@@ -119,7 +145,7 @@ def parse_connection_output(raw_output):
             is_windows_output = True
             print("DEBUG: Cabeçalho de saída do Windows detectado (flexível).")
             break
-    
+            
     is_linux_output = False
     if lines and 'Netid' in lines[0] and 'State' in lines[0]: # Linux ss header check
         is_linux_output = True
@@ -131,23 +157,19 @@ def parse_connection_output(raw_output):
         stripped_line = line.strip()
 
         if not data_started:
-            if (is_windows_output and (('Proto' in stripped_line and 'local' in stripped_line.lower() and 'externo' in stripped_line.lower() and 'estado' in stripped_line.lower() and 'pid' in stripped_line.lower()) or 
-                                      ('Proto' in stripped_line and 'Local Address' in stripped_line and 'Foreign Address' in stripped_line and 'State' in stripped_line and 'PID' in stripped_line))) or \
+            if (is_windows_output and (('Proto' in stripped_line and 'local' in stripped_line.lower() and 'externo' in stripped_line.lower() and 'estado' in stripped_line.lower() and 'pid' in stripped_line.lower()) or
+                                       ('Proto' in stripped_line and 'Local Address' in stripped_line and 'Foreign Address' in stripped_line and 'State' in stripped_line and 'PID' in stripped_line))) or \
                (is_linux_output and stripped_line.startswith('Netid')):
                 data_started = True
-                print(f"DEBUG: Linha de cabeçalho encontrada na linha {i}. Iniciando coleta de dados.")
-                continue # Pular a linha do cabeçalho
+                continue
             else:
-                continue # Ignora linhas antes do cabeçalho
+                continue
         
         if not stripped_line: # Ignora linhas vazias após o cabeçalho
             continue
 
         # Use re.split para lidar com múltiplos espaços como um único delimitador
         parts = re.split(r'\s+', stripped_line)
-
-        # print(f"DEBUG: Linha {i+1} processada: '{stripped_line}'")
-        # print(f"DEBUG: Partes obtidas: {parts}")
 
         protocol = ''
         local_address = ''
@@ -164,7 +186,6 @@ def parse_connection_output(raw_output):
                 state = parts[3]
                 pid_str = parts[4]
             else:
-                # print(f"DEBUG: Linha do Windows ignorada por ter menos de 5 partes esperadas: {stripped_line}")
                 continue
         elif is_linux_output:
             # Padrão para ss: Netid State Recv-Q Send-Q Local Address:Port Peer Address:Port users:(("process_name",pid=PID,fd=FD))
@@ -185,25 +206,77 @@ def parse_connection_output(raw_output):
                     elif len(parts) >= 2 and parts[-2].isdigit():
                         pid_str = parts[-2]
             else:
-                # print(f"DEBUG: Linha do Linux ignorada por ter menos de 6 partes esperadas: {stripped_line}")
                 continue
 
         # Se as informações essenciais não foram extraídas, pule esta linha.
         if not protocol or not local_address or not foreign_address or not pid_str:
-            # print(f"DEBUG: Linha ignorada devido a informações incompletas (protocol, local, foreign, ou pid ausente): {stripped_line}")
             continue
 
         local_port = local_address.split(':')[-1] if ':' in local_address else ''
         foreign_port = foreign_address.split(':')[-1] if ':' in foreign_address else ''
 
+        # Assegurar que as portas são numéricas para comparação
+        try:
+            local_port_num = int(local_port)
+        except ValueError:
+            local_port_num = -1 # Valor inválido para não ser comparado
+
+        try:
+            foreign_port_num = int(foreign_port)
+        except ValueError:
+            foreign_port_num = -1 # Valor inválido para não ser comparado
+            
         service_name_foreign = get_service_name_from_port(foreign_port, protocol)
         service_name_local = get_service_name_from_port(local_port, protocol)
-        
+            
         process_info = get_process_info(pid_str)
-        
+            
         final_process_name = process_info['name']
         if is_linux_output and process_name_from_ss and ('Processo não encontrado' in final_process_name or 'Erro psutil' in final_process_name):
             final_process_name = process_name_from_ss
+
+        # --- REGRAS DE FILTRAGEM REVISADAS COMEÇAM AQUI ---
+
+        # 1. EXCLUIR TODAS as conexões de loopback.
+        # Loopback IPv4: 127.0.0.1
+        # Loopback IPv6: ::1
+        # Qualquer conexão onde o endereço local OU estrangeiro for loopback será ignorada.
+        local_ip_base = re.sub(r':\d+$', '', local_address).replace('[', '').replace(']', '')
+        foreign_ip_base = re.sub(r':\d+$', '', foreign_address).replace('[', '').replace(']', '')
+
+        if local_ip_base == '127.0.0.1' or local_ip_base == '::1' or \
+           foreign_ip_base == '127.0.0.1' or foreign_ip_base == '::1':
+            # print(f"DEBUG: Ignorando conexão de loopback: {stripped_line}")
+            continue
+
+        # 2. Focar em estados de conexão relevantes: ESTABLISHED e LISTENING.
+        if state not in ['ESTABLISHED', 'LISTEN']:
+            # print(f"DEBUG: Ignorando conexão em estado não relevante ({state}): {stripped_line}")
+            continue
+
+        # 3. Principal filtro: Incluir apenas conexões que usam portas de serviço de interesse
+        # A conexão é considerada relevante se a porta local OU a porta estrangeira estiver na nossa lista.
+        is_local_port_of_interest = str(local_port_num) in SERVICE_PORTS_OF_INTEREST
+        is_foreign_port_of_interest = str(foreign_port_num) in SERVICE_PORTS_OF_INTEREST
+
+        # Para ser incluída, a conexão deve ter uma porta de interesse,
+        # OU ser um serviço LISTENING em 0.0.0.0 ou :: (que representa "qualquer interface").
+        # Se for LISTENING e a porta for de interesse, inclui.
+        # Se for ESTABLISHED e a porta local OU estrangeira for de interesse, inclui.
+        if state == 'LISTENING':
+            # Para serviços LISTENING, o que importa é a porta local estar na lista de interesse.
+            # O foreign_address sendo 0.0.0.0 ou :: é normal para LISTEN.
+            if not is_local_port_of_interest:
+                # print(f"DEBUG: Ignorando serviço LISTENING em porta não de interesse: {local_port} - {stripped_line}")
+                continue
+        elif state == 'ESTABLISHED':
+            # Para conexões ESTABLISHED, precisamos que a porta local ou a porta estrangeira
+            # seja uma das portas de serviço de interesse.
+            if not is_local_port_of_interest and not is_foreign_port_of_interest:
+                # print(f"DEBUG: Ignorando conexão ESTABLISHED sem porta de serviço conhecida: {foreign_port} (Foreign) / {local_port} (Local) - {stripped_line}")
+                continue
+
+        # --- REGRAS DE FILTRAGEM REVISADAS TERMINAM AQUI ---
 
         connections.append({
             'protocol': protocol,
@@ -230,7 +303,7 @@ def generate_network_diagram(connections, filename="network_diagram", format="pn
     current_date = datetime.date.today().strftime("%Y-%m-%d")
     diagram_title = f"Diagrama de Conexões de Rede\nData de Criação/Revisão: {current_date}"
 
-    dot = graphviz.Digraph(comment='Network Connections', 
+    dot = graphviz.Digraph(comment='Network Connections',
                            graph_attr={'rankdir': 'LR', 'label': diagram_title, 'labelloc': 't', 'fontsize': '20'},
                            node_attr={'fontname': 'Helvetica'},
                            edge_attr={'fontname': 'Helvetica'})
