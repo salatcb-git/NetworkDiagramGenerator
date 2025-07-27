@@ -37,7 +37,7 @@ Finalmente, ele usa a biblioteca Graphviz para renderizar um grafo direcionado, 
 
 Aqui está um exemplo de um diagrama gerado pelo script. O diagrama real pode variar significativamente com base nas conexões ativas do seu sistema e nas suas configurações de rede.
 
-![Exemplo de Diagrama de Rede](images/network_diagram.png)
+![Exemplo de Diagrama de Rede](images/1network_diagram.png)
 
 * **Observação:** A identificação "Este Host (SeuNomeDeHost)" e "Gateway/Firewall" aparecem dinamicamente no diagrama gerado, tornando-o mais claro e personalizado.
 * **Organização:** O arquivo da imagem (`network_diagram.png`) é armazenado na pasta `images/` dentro do repositório para uma melhor organização e exibição no GitHub.
